@@ -19,28 +19,38 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 PRICE_HISTORY_FILE = "last_price.json"
 
-def get_prices(url):
-    with sync_playwright() as p:
-        headless = os.getenv("GITHUB_ACTIONS") == "true"
-        browser = p.chromium.launch(headless=headless)
-        page = browser.new_page()
-        page.goto(url)
-        page.wait_for_timeout(3000)
+def get_prices(url, retries=3):
+    for attempt in range(retries):
+        try:
+            with sync_playwright() as p:
+                headless = os.getenv("GITHUB_ACTIONS") == "true"
+                browser = p.chromium.launch(headless=headless)
+                page = browser.new_page()
+                page.goto(url, timeout=60000)
+                page.wait_for_timeout(3000)
 
-        current_price_raw = page.locator("[data-test='main-price']").first.inner_text()
-        current_price = float(re.sub(r'[^\d,]', '', current_price_raw).replace(',', '.'))
+                current_price_raw = page.locator("[data-test='main-price']").first.inner_text()
+                current_price = float(re.sub(r'[^\d,]', '', current_price_raw).replace(',', '.'))
 
-        original_price = None
-        pricing_block = page.locator(".product-highlight-price, .pricing-block").first
-        strikethrough = pricing_block.locator("s")
-        if strikethrough.count() > 0:
-            original_price_raw = strikethrough.first.inner_text()
-            original_price = float(re.sub(r'[^\d,]', '', original_price_raw).replace(',', '.'))
-            if original_price < current_price:
                 original_price = None
+                pricing_block = page.locator(".product-highlight-price, .pricing-block").first
+                strikethrough = pricing_block.locator("s")
+                if strikethrough.count() > 0:
+                    original_price_raw = strikethrough.first.inner_text()
+                    original_price = float(re.sub(r'[^\d,]', '', original_price_raw).replace(',', '.'))
+                    if original_price < current_price:
+                        original_price = None
 
-        browser.close()
-        return current_price, original_price
+                browser.close()
+                return current_price, original_price
+
+        except Exception as e:
+            print(f"Attempt {attempt + 1} of {retries} failed: {e}")
+            if attempt + 1 == retries:
+                raise
+            print("Retrying in 5 seconds...")
+            import time
+            time.sleep(5)
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
