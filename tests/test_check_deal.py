@@ -9,10 +9,24 @@ SITE_NAME = "eMAG"
 
 
 @patch("tracker.send_telegram_message")
-def test_price_changed_sends_notification(mock_send):
+def test_price_drop_sends_notification(mock_send):
     history = {"Test Product": 100.0}
     check_deal(PRODUCT, 80.0, None, SITE_NAME, history)
     mock_send.assert_called_once()
+
+
+@patch("tracker.send_telegram_message")
+def test_price_increase_no_notification(mock_send):
+    history = {"Test Product": 100.0}
+    check_deal(PRODUCT, 120.0, None, SITE_NAME, history)
+    mock_send.assert_not_called()
+
+
+@patch("tracker.send_telegram_message")
+def test_price_increase_updates_history(mock_send):
+    history = {"Test Product": 100.0}
+    check_deal(PRODUCT, 120.0, None, SITE_NAME, history)
+    assert history["Test Product"] == 120.0
 
 
 @patch("tracker.send_telegram_message")
@@ -23,14 +37,14 @@ def test_price_unchanged_no_notification(mock_send):
 
 
 @patch("tracker.send_telegram_message")
-def test_price_changed_updates_history(mock_send):
+def test_price_drop_updates_history(mock_send):
     history = {"Test Product": 100.0}
     check_deal(PRODUCT, 80.0, None, SITE_NAME, history)
     assert history["Test Product"] == 80.0
 
 
 @patch("tracker.send_telegram_message")
-def test_price_change_with_discount_includes_discount_text(mock_send):
+def test_price_drop_with_discount_includes_discount_text(mock_send):
     history = {"Test Product": 100.0}
     check_deal(PRODUCT, 80.0, 120.0, SITE_NAME, history)
     message = mock_send.call_args[0][0]
@@ -39,7 +53,7 @@ def test_price_change_with_discount_includes_discount_text(mock_send):
 
 
 @patch("tracker.send_telegram_message")
-def test_price_change_without_discount_no_discount_text(mock_send):
+def test_price_drop_without_discount_no_discount_text(mock_send):
     history = {"Test Product": 100.0}
     check_deal(PRODUCT, 80.0, None, SITE_NAME, history)
     message = mock_send.call_args[0][0]
@@ -47,10 +61,17 @@ def test_price_change_without_discount_no_discount_text(mock_send):
 
 
 @patch("tracker.send_telegram_message")
-def test_first_time_product_sends_notification(mock_send):
+def test_first_time_product_no_notification(mock_send):
     history = {}
     check_deal(PRODUCT, 100.0, None, SITE_NAME, history)
-    mock_send.assert_called_once()
+    mock_send.assert_not_called()
+
+
+@patch("tracker.send_telegram_message")
+def test_first_time_product_saves_baseline(mock_send):
+    history = {}
+    check_deal(PRODUCT, 100.0, None, SITE_NAME, history)
+    assert history["Test Product"] == 100.0
 
 
 @patch("tracker.send_telegram_message")

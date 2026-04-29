@@ -73,14 +73,18 @@ def check_deal(product, current_price, original_price, site_name, history, dry_r
     last_price = history.get(product["name"])
     logger.info(f"Last known price: {last_price} Lei")
 
-    if current_price != last_price:
+    if last_price is None:
+        logger.info("First time seeing this product. Saving baseline price.")
+        if not dry_run:
+            history[product["name"]] = current_price
+    elif current_price < last_price:
         discount_text = ""
         if original_price is not None and original_price > current_price:
             discount = ((original_price - current_price) / original_price) * 100
             discount_text = f"\nDiscount: {discount:.1f}%\nOriginal price: {original_price} Lei"
 
         message = (
-            f"💰 Price change detected on {site_name}!\n"
+            f"💰 Price drop detected on {site_name}!\n"
             f"Product: {product['name']}\n"
             f"Old price: {last_price} Lei\n"
             f"New price: {current_price} Lei"
@@ -94,6 +98,10 @@ def check_deal(product, current_price, original_price, site_name, history, dry_r
         else:
             history[product["name"]] = current_price
             send_telegram_message(message)
+    elif current_price > last_price:
+        logger.info(f"Price increased from {last_price} to {current_price} Lei. No notification sent.")
+        if not dry_run:
+            history[product["name"]] = current_price
     else:
         logger.info("Price unchanged. No notification sent.")
 
