@@ -2,6 +2,8 @@ from utils import parse_price
 
 
 class EmagProductPage:
+    site_name = "eMAG"
+
     def __init__(self, page):
         self.page = page
 

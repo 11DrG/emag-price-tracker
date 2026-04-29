@@ -2,6 +2,8 @@ from utils import parse_price
 
 
 class AltexProductPage:
+    site_name = "Altex"
+
     def __init__(self, page):
         self.page = page
 
@@ -10,8 +12,10 @@ class AltexProductPage:
         self.page.wait_for_timeout(3000)
 
     def get_current_price(self):
-        # text-3xl targets the main product section, not the sticky header (text-28px)
-        raw = self.page.locator("div[class*='text-3xl']").first.inner_text()
+        price_block = self.page.locator("div[class*='text-3xl']").first
+        # When there's a PRP discount the sale price is in a text-red-brand child div
+        sale = price_block.locator("div[class*='text-red-brand']")
+        raw = sale.first.inner_text() if sale.count() > 0 else price_block.inner_text()
         return parse_price(raw)
 
     def get_original_price(self, current_price):
