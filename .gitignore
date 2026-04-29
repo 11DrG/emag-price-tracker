@@ -23,5 +23,3 @@ playwright-report/
 # Virtual environment
 venv/
 .venv/
- 
-last_price.json
