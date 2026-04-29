@@ -1,5 +1,5 @@
 import pytest
-from tracker import parse_price
+from utils import parse_price
 
 
 def test_simple_price_with_comma_decimal():

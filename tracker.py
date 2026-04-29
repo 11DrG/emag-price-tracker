@@ -1,24 +1,29 @@
-import re
+import logging
 import requests
 import json
 import os
+import time
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
+from pages.emag_page import EmagProductPage
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 PRODUCTS_FILE = "products.json"
 
 with open(PRODUCTS_FILE, "r") as f:
     PRODUCTS = json.load(f)
 
-DISCOUNT_THRESHOLD = 30
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 PRICE_HISTORY_FILE = "last_price.json"
-
-def parse_price(raw_text):
-    return float(re.sub(r'[^\d,]', '', raw_text).replace(',', '.'))
 
 def get_prices(url, retries=3):
     for attempt in range(retries):
@@ -26,38 +31,25 @@ def get_prices(url, retries=3):
             with sync_playwright() as p:
                 headless = os.getenv("GITHUB_ACTIONS") == "true"
                 browser = p.chromium.launch(headless=headless)
-                page = browser.new_page()
-                page.goto(url, timeout=60000)
-                page.wait_for_timeout(3000)
-
-                current_price_raw = page.locator("[data-test='main-price']").first.inner_text()
-                current_price = parse_price(current_price_raw)
-
-                original_price = None
-                pricing_block = page.locator(".product-highlight-price, .pricing-block").first
-                strikethrough = pricing_block.locator("s")
-                if strikethrough.count() > 0:
-                    original_price_raw = strikethrough.first.inner_text()
-                    original_price = parse_price(original_price_raw)
-                    if original_price < current_price:
-                        original_price = None
-
+                emag_page = EmagProductPage(browser.new_page())
+                emag_page.open(url)
+                current_price = emag_page.get_current_price()
+                original_price = emag_page.get_original_price(current_price)
                 browser.close()
                 return current_price, original_price
 
         except Exception as e:
-            print(f"Attempt {attempt + 1} of {retries} failed: {e}")
+            logger.warning(f"Attempt {attempt + 1} of {retries} failed: {e}")
             if attempt + 1 == retries:
                 raise
-            print("Retrying in 5 seconds...")
-            import time
+            logger.info("Retrying in 5 seconds...")
             time.sleep(5)
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     response = requests.post(url, json=payload)
-    print(f"Telegram response: {response.json()}")
+    logger.debug(f"Telegram response: {response.json()}")
 
 def load_price_history():
     if os.path.exists(PRICE_HISTORY_FILE):
@@ -70,14 +62,14 @@ def save_price_history(history):
         json.dump(history, f)
 
 def check_deal(product, current_price, original_price, history):
-    print(f"\n--- {product['name']} ---")
-    print(f"Current price: {current_price} Lei")
+    logger.info(f"--- {product['name']} ---")
+    logger.info(f"Current price: {current_price} Lei")
 
     last_price = history.get(product["name"])
-    print(f"Last known price: {last_price} Lei")
+    logger.info(f"Last known price: {last_price} Lei")
 
     if current_price != last_price:
-        print("Price changed! Saving new price...")
+        logger.info("Price changed! Saving new price...")
         history[product["name"]] = current_price
 
         discount_text = ""
@@ -93,10 +85,10 @@ def check_deal(product, current_price, original_price, history):
             f"{discount_text}\n"
             f"Link: {product['url']}"
         )
-        print(message)
+        logger.info(message)
         send_telegram_message(message)
     else:
-        print("Price unchanged. No notification sent.")
+        logger.info("Price unchanged. No notification sent.")
 
 if __name__ == "__main__":
     history = load_price_history()
@@ -105,5 +97,5 @@ if __name__ == "__main__":
             current, original = get_prices(product["url"])
             check_deal(product, current, original, history)
         except Exception as e:
-            print(f"Error tracking {product['name']}: {e}")
+            logger.error(f"Error tracking {product['name']}: {e}")
     save_price_history(history)
