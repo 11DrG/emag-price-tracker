@@ -1,38 +1,48 @@
-from utils import parse_price
+import re
+import requests
 from pages.base_page import BasePage
 
-PRICE_SELECTORS = [
-    "[data-test='main-price']",
-    ".product-new-price",
-    ".pricing-block .product-new-price",
-    ".product-highlight-price .product-new-price",
-    "span.product-new-price",
-]
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
 
 
 class EmagProductPage(BasePage):
     site_name = "eMAG"
 
+    def __init__(self, page):
+        super().__init__(page)
+        self._html = None
+
+    def open(self, url):
+        response = requests.get(url, headers=_HEADERS, timeout=30)
+        response.raise_for_status()
+        self._html = response.text
+
     def get_current_price(self):
-        for selector in PRICE_SELECTORS:
-            locator = self.page.locator(selector).first
-            if locator.count() > 0:
-                try:
-                    raw = locator.inner_text(timeout=5000)
-                    price = parse_price(raw)
-                    if price:
-                        return price
-                except Exception:
-                    continue
-        raise ValueError(f"Price element not found on {self.page.url}. Tried selectors: {PRICE_SELECTORS}")
+        match = re.search(
+            r'data-test="main-price">(\d+)<sup><small[^>]*>[^<]*</small>(\d+)</sup>',
+            self._html,
+        )
+        if not match:
+            raise ValueError("Price element not found in eMAG response")
+        return float(f"{match.group(1)}.{match.group(2)}")
 
     def get_original_price(self, current_price):
-        pricing_block = self.page.locator(".product-highlight-price, .pricing-block").first
-        strikethrough = pricing_block.locator("s")
-        if strikethrough.count() == 0:
+        match = re.search(
+            r'<s>(\d+)<sup><small[^>]*>[^<]*</small>(\d+)</sup>',
+            self._html,
+        )
+        if not match:
             return None
-        raw = strikethrough.first.inner_text()
-        original = parse_price(raw)
+        original = float(f"{match.group(1)}.{match.group(2)}")
         if original < current_price:
             return None
         return original
+
+    def screenshot_on_failure(self, url):
+        return None
