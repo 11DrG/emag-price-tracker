@@ -32,10 +32,12 @@ LOWEST_PRICE_FILE = os.path.join(DATA_DIR, "lowest_price.json")
 PRICE_LOG_FILE = os.path.join(DATA_DIR, "price_history.csv")
 
 
-def get_prices(url, browser, retries=3):
+def get_prices(url, context, retries=3):
     for attempt in range(retries):
+        page = None
+        product_page = None
         try:
-            page = browser.new_page()
+            page = context.new_page()
             product_page = get_page_for_url(url, page)
             product_page.open(url)
             current_price = product_page.get_current_price()
@@ -47,7 +49,15 @@ def get_prices(url, browser, retries=3):
         except Exception as e:
             logger.warning(f"Attempt {attempt + 1} of {retries} failed: {e}")
             if attempt + 1 == retries:
+                if product_page is not None:
+                    screenshot_path = product_page.screenshot_on_failure(url)
+                    if screenshot_path:
+                        logger.info(f"Screenshot saved to {screenshot_path}")
+                if page is not None:
+                    page.close()
                 raise
+            if page is not None:
+                page.close()
             logger.info("Retrying in 5 seconds...")
             time.sleep(5)
 
@@ -159,19 +169,53 @@ if __name__ == "__main__":
     headless = os.getenv("SHOW_BROWSER", "false").lower() != "true"
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
+        chromium = p.chromium.launch(
+            headless=headless,
+            args=[
+                "--disable-http2",
+                "--disable-blink-features=AutomationControlled",
+            ],
+        )
+        firefox = p.firefox.launch(headless=headless)
+        context = chromium.new_context(
+            viewport={"width": 1366, "height": 768},
+            locale="ro-RO",
+            timezone_id="Europe/Bucharest",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        )
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
         for product in PRODUCTS:
             try:
-                current, original, site_name = get_prices(product["url"], browser)
+                if "altex.ro" in product["url"]:
+                    ctx = firefox.new_context(
+                        viewport={"width": 1366, "height": 768},
+                        locale="ro-RO",
+                        timezone_id="Europe/Bucharest",
+                    )
+                else:
+                    ctx = context
+                current, original, site_name = get_prices(product["url"], ctx)
+                if ctx is not context:
+                    ctx.close()
                 check_deal(product, current, original, site_name, history, lowest, dry_run=args.dry_run)
             except Exception as e:
+                if ctx is not context:
+                    ctx.close()
                 logger.error(f"Error tracking {product['name']}: {e}")
                 if not args.dry_run:
                     try:
                         send_telegram_message(f"⚠️ Failed to scrape {product['name']} after 3 retries.\nError: {e}")
                     except Exception as telegram_error:
                         logger.error(f"Failed to send error notification: {telegram_error}")
-        browser.close()
+        context.close()
+        chromium.close()
+        firefox.close()
 
     if not args.dry_run:
         save_price_history(history)
