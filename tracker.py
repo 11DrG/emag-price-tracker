@@ -166,6 +166,11 @@ if __name__ == "__main__":
                 check_deal(product, current, original, site_name, history, lowest, dry_run=args.dry_run)
             except Exception as e:
                 logger.error(f"Error tracking {product['name']}: {e}")
+                if not args.dry_run:
+                    try:
+                        send_telegram_message(f"⚠️ Failed to scrape {product['name']} after 3 retries.\nError: {e}")
+                    except Exception as telegram_error:
+                        logger.error(f"Failed to send error notification: {telegram_error}")
         browser.close()
 
     if not args.dry_run:
